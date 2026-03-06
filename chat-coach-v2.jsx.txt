@@ -1,0 +1,230 @@
+import { useState, useRef, useEffect } from "react";
+
+const SYSTEM_PROMPT = `You are a personal chat coach for a specific person. Your job is to tell them EXACTLY what to say in their DM conversations — written in THEIR unique voice and personality.
+
+THEIR PERSONALITY (this is critical — every reply must sound like them):
+- Straightforward and direct — no beating around the bush
+- Naturally funny and witty — drops jokes casually without trying too hard
+- Intellectual — enjoys deep or meaningful conversations, not just small talk
+- Casual and real — talks like a normal human, not a corporate bot
+- Short sentences — punchy, not long winded
+- Occasional lowercase, casual punctuation — feels like real texting
+
+Their goal: Build genuine relationships with potential clients (business owners, website owners, creators, authors) with the long-term goal of offering services like website redesign and SEO — but WITHOUT being salesy upfront.
+
+RULES FOR EVERY REPLY YOU GENERATE:
+1. Sound like the person above — straightforward, funny, a little intellectual
+2. NEVER sound like AI — no "That's so wonderful!" or "I truly appreciate..." type phrases
+3. Keep it SHORT — 1 to 3 lines max, like a real DM
+4. Add a joke or witty line where it fits naturally
+5. Never push services early — build the relationship first
+6. When trust is built (5+ messages), casually mention what they do
+7. Flip questions back to keep the other person talking
+8. Stage progression: Curiosity → Warmth → Intellectual connection → Value → Natural offer
+
+FORMAT your response EXACTLY like this:
+REPLY: [what they should say — in their voice, short and punchy]
+TIP: [one sentence on why this works]
+
+Never write long replies. Real DMs are short. Punchy. Human.`;
+
+const CHIPS = [
+  "Hi how can I help you?",
+  "What do you do?",
+  "I'm not interested",
+  "How much do you charge?",
+  "We already have someone",
+  "That sounds great!",
+  "You sound like AI 😂",
+  "Who are you?",
+];
+
+const STAGES = ["Opening", "Warming Up", "Building Trust", "Going Deeper", "Almost There", "Ready to Offer"];
+const GOAL_LABELS = { relationship: "Relationship", pitch: "Pitch", contact: "Get Contact" };
+
+export default function App() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [goal, setGoal] = useState("relationship");
+  const [stage, setStage] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [copied, setCopied] = useState(null);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  async function send(text) {
+    if (!text.trim() || loading) return;
+    setInput("");
+    setLoading(true);
+    setMessages(prev => [...prev, { from: "buyer", text }]);
+    setStage(Math.min(history.length, STAGES.length - 1));
+
+    const newHistory = [
+      ...history,
+      { role: "user", content: `Buyer said: "${text}"\nGoal: ${goal}\nMessage #${history.length + 1} in conversation` },
+    ];
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 800,
+          system: SYSTEM_PROMPT,
+          messages: newHistory,
+        }),
+      });
+
+      const data = await res.json();
+      const fullText = data.content?.[0]?.text || "";
+      const replyMatch = fullText.match(/REPLY:\s*([\s\S]*?)(?=TIP:|$)/i);
+      const tipMatch = fullText.match(/TIP:\s*(.+)/i);
+      const reply = replyMatch ? replyMatch[1].trim() : fullText;
+      const tip = tipMatch ? tipMatch[1].trim() : null;
+
+      setMessages(prev => [...prev, { from: "coach", text: reply, tip }]);
+      setHistory([...newHistory, { role: "assistant", content: fullText }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { from: "coach", text: "Network error. Check your connection and try again.", tip: null }]);
+    }
+    setLoading(false);
+  }
+
+  function copyText(text, idx) {
+    navigator.clipboard.writeText(text).catch(() => {
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    });
+    setCopied(idx);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  return (
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#07070f", maxWidth: 500, margin: "0 auto", fontFamily: "'Outfit', 'Segoe UI', sans-serif" }}>
+
+      {/* Header */}
+      <div style={{ background: "#0a0a14", borderBottom: "1px solid #1c1c2e", padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,#6c47ff,#ff6b6b)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🧠</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: "#f0f0ff", fontWeight: 700, fontSize: 14 }}>Your Chat Coach</div>
+          <div style={{ color: "#00d4aa", fontSize: 11, fontWeight: 600 }}>● Tuned to YOUR voice — straight, witty, real</div>
+        </div>
+        <div style={{ background: "rgba(108,71,255,0.15)", border: "1px solid rgba(108,71,255,0.3)", borderRadius: 20, padding: "3px 10px", fontSize: 11, color: "#6c47ff", fontWeight: 700 }}>
+          {STAGES[stage]}
+        </div>
+      </div>
+
+      {/* Personality badge */}
+      <div style={{ background: "rgba(0,212,170,0.04)", borderBottom: "1px solid rgba(0,212,170,0.1)", padding: "7px 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: "#00d4aa", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Your vibe:</span>
+        {["Straightforward", "Witty 😂", "Intellectual"].map(tag => (
+          <span key={tag} style={{ background: "rgba(0,212,170,0.08)", border: "1px solid rgba(0,212,170,0.2)", borderRadius: 20, padding: "2px 10px", fontSize: 11, color: "#4a9a8a", fontWeight: 600 }}>{tag}</span>
+        ))}
+        {/* Goal selector */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 5 }}>
+          {Object.entries(GOAL_LABELS).map(([k, v]) => (
+            <button key={k} onClick={() => setGoal(k)} style={{ background: goal === k ? "rgba(108,71,255,0.25)" : "transparent", border: `1px solid ${goal === k ? "#6c47ff" : "#1c1c2e"}`, borderRadius: 20, padding: "2px 9px", fontSize: 10, color: goal === k ? "#8c6fff" : "#444466", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              {v}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => { setMessages([]); setHistory([]); setStage(0); }} style={{ background: "transparent", border: "none", color: "#333355", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>↺</button>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 12 }}>
+
+        {messages.length === 0 && (
+          <div style={{ textAlign: "center", padding: "28px 16px" }}>
+            <div style={{ fontSize: 44, marginBottom: 14 }}>💬</div>
+            <div style={{ color: "#f0f0ff", fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Tuned to YOUR voice</div>
+            <div style={{ color: "#444466", fontSize: 13, lineHeight: 1.6, marginBottom: 6 }}>
+              Replies will sound <span style={{ color: "#00d4aa", fontWeight: 600 }}>straight, witty and real</span> — not like AI.
+            </div>
+            <div style={{ color: "#333355", fontSize: 12, marginBottom: 20 }}>Paste what they said → get your perfect reply 👇</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+              {CHIPS.map(c => (
+                <button key={c} onClick={() => send(c)} style={{ background: "#12121e", border: "1px solid #1c1c2e", borderRadius: 20, padding: "7px 13px", fontSize: 12, color: "#8888aa", cursor: "pointer", fontFamily: "inherit" }}>{c}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 5, animation: "fadeUp 0.3s ease" }}>
+            {msg.from === "buyer" ? (
+              <div style={{ background: "#12121e", border: "1px solid #1c1c2e", borderRadius: "16px 16px 16px 4px", padding: "11px 14px", maxWidth: "82%", alignSelf: "flex-start" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#ff6b6b", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 4 }}>👤 They said</div>
+                <div style={{ fontSize: 14, color: "#c0c0d0", lineHeight: 1.5 }}>{msg.text}</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ background: "linear-gradient(135deg,rgba(108,71,255,0.14),rgba(108,71,255,0.06))", border: "1px solid rgba(108,71,255,0.25)", borderRadius: "16px 16px 4px 16px", padding: "13px 14px", maxWidth: "88%", alignSelf: "flex-end", position: "relative" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#00d4aa", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 4 }}>✨ Say this (in YOUR voice)</div>
+                  <div style={{ fontSize: 14, color: "#f0f0ff", lineHeight: 1.7, paddingRight: 54, whiteSpace: "pre-wrap" }}>{msg.text}</div>
+                  <button onClick={() => copyText(msg.text, i)} style={{ position: "absolute", top: 10, right: 10, background: "rgba(108,71,255,0.2)", border: "none", borderRadius: 8, padding: "4px 9px", color: copied === i ? "#00d4aa" : "#6c47ff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    {copied === i ? "✓ Done" : "Copy"}
+                  </button>
+                </div>
+                {msg.tip && (
+                  <div style={{ background: "rgba(0,212,170,0.05)", borderLeft: "3px solid #00d4aa", borderRadius: "0 10px 10px 0", padding: "7px 12px", maxWidth: "86%", alignSelf: "flex-end" }}>
+                    <div style={{ fontSize: 10, color: "#00d4aa", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>💡 Why it works</div>
+                    <div style={{ fontSize: 12, color: "#4a8a7a", lineHeight: 1.5 }}>{msg.tip}</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ))}
+
+        {loading && (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ background: "rgba(108,71,255,0.1)", border: "1px solid rgba(108,71,255,0.2)", borderRadius: "16px 16px 4px 16px", padding: "14px 18px", display: "flex", gap: 6, alignItems: "center" }}>
+              {[0, 0.2, 0.4].map((d, i) => (
+                <div key={i} style={{ width: 8, height: 8, background: "#6c47ff", borderRadius: "50%", animation: `bounce 1.2s ${d}s infinite` }} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ background: "#0a0a14", borderTop: "1px solid #1c1c2e", padding: "10px 12px 24px", flexShrink: 0 }}>
+        <div style={{ fontSize: 10, color: "#333355", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 8 }}>● Paste what they just said</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
+            placeholder="Type or paste their message..."
+            rows={1}
+            style={{ flex: 1, background: "#12121e", border: "1px solid #1c1c2e", borderRadius: 14, padding: "11px 14px", color: "#f0f0ff", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "none", lineHeight: 1.5, maxHeight: 120 }}
+          />
+          <button onClick={() => send(input)} disabled={loading || !input.trim()} style={{ width: 44, height: 44, background: loading || !input.trim() ? "#12121e" : "linear-gradient(135deg,#6c47ff,#8c5fff)", border: "none", borderRadius: 12, color: loading || !input.trim() ? "#333355" : "#fff", fontSize: 18, cursor: loading || !input.trim() ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: loading || !input.trim() ? "none" : "0 4px 16px rgba(108,71,255,0.4)" }}>↑</button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+          30% { transform: translateY(-6px); opacity: 1; }
+        }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
